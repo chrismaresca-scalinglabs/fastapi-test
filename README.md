@@ -54,11 +54,15 @@ After setting up your .env file, you can build and run the Docker container:
 
 1. **Build the Docker Image:**
 
-sh`docker build -t my-fastapi-app . `
+```sh
+docker build -t my-fastapi-app .
+```
 
 Run the Docker Container:
 
-sh`docker run --env-file .env -p 80:80 my-fastapi-app `
+```sh
+docker run --env-file .env -p 80:80 my-fastapi-app
+```
 
 ### Conclusion
 
