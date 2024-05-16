@@ -13,10 +13,10 @@ This project is a FastAPI application containerized with Docker. Before running 
 
 1. **Clone the Repository**
 
-   ```sh
-   git clone https://github.com/your-repo/project-name.git
-   cd project-name
-   ```
+```sh
+git clone https://github.com/your-repo/project-name.git
+cd project-name
+```
 
 2. **Create a .env File**
 
