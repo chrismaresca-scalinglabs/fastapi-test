@@ -1,83 +1,56 @@
-import os
-from fastapi import Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
-import requests
-from app.auth import User
-from dotenv import load_dotenv
+from typing import Optional
 
-# Load environment variables
-load_dotenv()
-
-# Retrieve environment variables
-COGNITO_REGION = os.getenv("COGNITO_REGION")
-COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID")
-COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID")
-
-if not all([COGNITO_REGION, COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_ID]):
-    raise Exception("Missing one or more environment variables for Cognito configuration")
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-def get_jwks():
-    url = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}/.well-known/jwks.json"
-    response = requests.get(url)
-    response.raise_for_status()  # Raise an exception for HTTP errors
-    return response.json()
-
-
-def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
-    jwks = get_jwks()
-    unverified_header = jwt.get_unverified_header(token)
-    rsa_key = {}
-    for key in jwks["keys"]:
-        if key["kid"] == unverified_header["kid"]:
-            rsa_key = {
-                "kty": key["kty"],
-                "kid": key["kid"],
-                "use": key["use"],
-                "n": key["n"],
-                "e": key["e"],
-            }
-    if rsa_key:
-        try:
-            payload = jwt.decode(token,
-                                 rsa_key,
-                                 algorithms=["RS256"],
-                                 audience=COGNITO_APP_CLIENT_ID)
-
-            print(payload)
-
-            email = payload.get("email")
-            if email is None:
-                raise HTTPException(status_code=401, detail="Invalid token")
-            return User(email=email)
-        except JWTError:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    raise HTTPException(status_code=401, detail="Invalid token")
-
-
+# FastAPI
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi import Depends, HTTPException, status, Response, FastAPI, Depends
+from fastapi import Depends, HTTPException, status, Response
+
+# Import roles
+from app.roles import ROLE_HIERARCHY
+
+# Firebase
 from firebase_admin import auth, credentials, initialize_app
 
-credential = credentials.Certificate('./key.json')
+
+credential = credentials.Certificate(cert='key.json')
 initialize_app(credential=credential)
 
-def get_user_token(res: Response, credential: HTTPAuthorizationCredentials=Depends(HTTPBearer(auto_error=False))):
-    if credential is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Bearer authentication is needed",
-            headers={'WWW-Authenticate': 'Bearer realm="auth_required"'},
-        )
-    try:
-        decoded_token = auth.verify_id_token(credential.credentials)
-    except Exception as err:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid authentication from Firebase. {err}",
-            headers={'WWW-Authenticate': 'Bearer error="invalid_token"'},
-        )
-    res.headers['WWW-Authenticate'] = 'Bearer realm="auth_required"'
-    return decoded_token
+
+
+def get_current_user(required_role: Optional[str] = None):
+    async def _get_current_user(
+        res: Response, credential: HTTPAuthorizationCredentials = Depends(HTTPBearer(auto_error=False))
+    ):
+        if credential is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Bearer authentication is needed",
+                headers={'WWW-Authenticate': 'Bearer realm="auth_required"'},
+            )
+        try:
+            decoded_token = auth.verify_id_token(credential.credentials)
+        except Exception as err:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid authentication from Firebase. {err}",
+                headers={'WWW-Authenticate': 'Bearer error="invalid_token"'},
+            )
+        
+        res.headers['WWW-Authenticate'] = 'Bearer realm="auth_required"'
+
+        user_role = decoded_token.get('role')
+
+        # Check role hierarchy
+        if required_role:
+            user_role_level = ROLE_HIERARCHY.get(user_role, 0)
+            required_role_level = ROLE_HIERARCHY.get(required_role, 0)
+            if user_role_level < required_role_level:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"User does not have the required role: {required_role}",
+                )
+
+        return decoded_token
+
+    return _get_current_user
+
+

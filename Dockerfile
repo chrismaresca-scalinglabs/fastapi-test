@@ -6,6 +6,8 @@ WORKDIR /app
 
 # Copy only requirements first to leverage Docker cache
 COPY ./requirements.txt /app/requirements.txt
+COPY ./key.json /app/key.json
+
 
 # Install dependencies
 RUN pip install --no-cache-dir -r /app/requirements.txt
